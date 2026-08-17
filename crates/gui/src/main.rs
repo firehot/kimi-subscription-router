@@ -442,6 +442,9 @@ impl Backend {
 
     /// 列出账号（激活的排前面）并逐个查询额度（失败只影响该行的展示）。
     fn load_rows(&self) -> Vec<AccountRow> {
+        // GUI 可长期驻留；每轮刷新都重新对齐官方 Kimi 当前账号，避免外部切号后
+        // 旧 registry active 标记让停放账号误走 active 401 恢复路径。
+        self.sync_local_active();
         let mut accounts = self.registry.list_by_provider("kimi").unwrap_or_default();
         accounts.sort_by_key(|a| !a.active);
         accounts
@@ -645,8 +648,6 @@ fn worker_main(ctx: egui::Context, rx: Receiver<Request>, tx: Sender<Response>) 
             return;
         }
     };
-    backend.sync_local_active();
-
     let send_list = |backend: &Backend, message: Option<(String, Tone)>| {
         let rows = backend.load_rows();
         let _ = tx.send(Response::List { rows, message });
