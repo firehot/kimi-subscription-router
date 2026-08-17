@@ -122,6 +122,7 @@ const COLOR_FULL: egui::Color32 = egui::Color32::from_rgb(248, 81, 73);
 const COLOR_ACCENT: egui::Color32 = egui::Color32::from_rgb(88, 166, 255);
 const EXTRA_NICKNAME: &str = "nickname";
 const EXTRA_SUBSCRIPTION_EXPIRES_ON: &str = "subscription_expires_on";
+const EXTRA_ROUTING_ENABLED: &str = "routing_enabled";
 
 fn usage_color(ratio: f32) -> egui::Color32 {
     if ratio < 0.5 {
@@ -336,6 +337,8 @@ enum Request {
     Rename { id: String, label: String },
     /// 设置月订阅到期日；空字符串表示清除备注。
     SetSubscriptionExpiry { id: String, expires_on: String },
+    /// 设置账号是否参与 ACP 自动路由。
+    SetRoutingEnabled { id: String, enabled: bool },
     /// 来自仅绑定回环地址的本地控制接口。
     Control(control::Command),
 }
@@ -354,6 +357,7 @@ struct AccountRow {
     label: String,
     /// 用户手动备注的月订阅到期日（YYYY-MM-DD）。
     subscription_expires_on: Option<String>,
+    routing_enabled: bool,
     active: bool,
     /// 会员等级（接口 user.membership.level，已美化）。
     membership: Option<String>,
@@ -487,10 +491,17 @@ impl Backend {
                     .get(EXTRA_SUBSCRIPTION_EXPIRES_ON)
                     .and_then(serde_json::Value::as_str)
                     .map(String::from);
+                let routing_enabled = account
+                    .extra
+                    .get(EXTRA_ROUTING_ENABLED)
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(true)
+                    && !account.manual_only();
                 AccountRow {
                     label,
                     id: account.id.0,
                     subscription_expires_on,
+                    routing_enabled,
                     active: account.active,
                     membership,
                     quotas,
@@ -591,6 +602,24 @@ impl Backend {
             }
         }
     }
+
+    /// 设置账号是否进入新会话与故障转移候选池。
+    fn set_routing_enabled(&self, id: &str, enabled: bool) -> anyhow::Result<String> {
+        let id = AccountId(id.to_string());
+        let mut account = self
+            .registry
+            .find("kimi", &id)?
+            .ok_or_else(|| anyhow::anyhow!("账号 {id} 不存在"))?;
+        account
+            .extra
+            .insert(EXTRA_ROUTING_ENABLED.into(), enabled.into());
+        self.registry.upsert(account)?;
+        Ok(if enabled {
+            format!("{id} 已加入自动路由")
+        } else {
+            format!("{id} 已暂停自动路由")
+        })
+    }
 }
 
 use anyhow::Context as _;
@@ -646,6 +675,12 @@ fn worker_main(ctx: egui::Context, rx: Receiver<Request>, tx: Sender<Response>) 
                     Err(e) => Some((format!("保存订阅到期日失败: {e:#}"), Tone::Err)),
                 }
             }
+            Request::SetRoutingEnabled { id, enabled } => {
+                match backend.set_routing_enabled(&id, enabled) {
+                    Ok(m) => Some((m, Tone::Ok)),
+                    Err(e) => Some((format!("更新路由状态失败: {e:#}"), Tone::Err)),
+                }
+            }
             Request::StartDeviceAuth(cancel) => {
                 let message = device_auth_flow(&backend, &tx, &ctx, cancel);
                 Some(message)
@@ -699,6 +734,7 @@ fn control_snapshot(row: &AccountRow) -> control::AccountSnapshot {
         active: row.active,
         membership: row.membership.clone(),
         subscription_expires_on: row.subscription_expires_on.clone(),
+        routing_enabled: row.routing_enabled,
         quotas: row
             .quotas
             .iter()
@@ -1185,6 +1221,7 @@ impl eframe::App for GuiApp {
             let mut delete_id: Option<String> = None;
             let mut rename_id: Option<String> = None;
             let mut subscription_expiry_id: Option<String> = None;
+            let mut routing_change: Option<(String, bool)> = None;
             egui::ScrollArea::vertical().show(ui, |ui| {
                 // 额度条文字颜色：深色主题用白字，浅色主题用深灰（否则压在浅色槽上看不清）。
                 let bar_text_color = if self.dark_mode {
@@ -1281,12 +1318,23 @@ impl eframe::App for GuiApp {
                                     },
                                 );
                             });
-                            if let Some(expires_on) = &row.subscription_expires_on {
-                                ui.horizontal(|ui| {
+                            ui.horizontal(|ui| {
+                                let mut enabled = row.routing_enabled;
+                                if ui
+                                    .add_enabled(
+                                        !self.busy,
+                                        egui::Checkbox::new(&mut enabled, "参与路由"),
+                                    )
+                                    .changed()
+                                {
+                                    routing_change = Some((row.id.clone(), enabled));
+                                }
+                                if let Some(expires_on) = &row.subscription_expires_on {
+                                    ui.separator();
                                     ui.label(egui::RichText::new("月订阅到期").small().weak());
                                     ui.label(egui::RichText::new(expires_on).small().strong());
-                                });
-                            }
+                                }
+                            });
                             ui.add_space(4.0);
                             // 额度条：固定列宽（窗口名 | 进度条 | 重置时间），保证多行对齐。
                             const LABEL_W: f32 = 52.0;
@@ -1362,6 +1410,12 @@ impl eframe::App for GuiApp {
                     .and_then(|row| row.subscription_expires_on.clone())
                     .unwrap_or_default();
                 self.subscription_expiry_target = Some((id, current));
+            }
+            if let Some((id, enabled)) = routing_change {
+                self.send(
+                    Request::SetRoutingEnabled { id, enabled },
+                    "正在更新路由状态…".to_string(),
+                );
             }
         });
 

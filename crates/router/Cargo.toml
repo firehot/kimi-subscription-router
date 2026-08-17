@@ -1,0 +1,32 @@
+[package]
+name = "kimi-subscription-router"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Quota-aware ACP router for multiple Kimi Code subscriptions"
+repository.workspace = true
+homepage.workspace = true
+
+[[bin]]
+name = "kimi-subscription-router"
+path = "src/main.rs"
+
+[dependencies]
+kimi-switch-core.workspace = true
+kimi-switch-kimi.workspace = true
+
+anyhow.workspace = true
+chrono.workspace = true
+clap.workspace = true
+fs2.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tokio.workspace = true
+toml.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

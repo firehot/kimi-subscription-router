@@ -39,6 +39,7 @@ pub struct AccountSnapshot {
     pub active: bool,
     pub membership: Option<String>,
     pub subscription_expires_on: Option<String>,
+    pub routing_enabled: bool,
     pub quotas: Vec<QuotaSnapshot>,
     pub error: Option<String>,
 }

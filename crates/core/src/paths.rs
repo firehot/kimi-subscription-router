@@ -130,6 +130,21 @@ impl AppPaths {
         self.state_dir.join("control-endpoint.json")
     }
 
+    /// ACP 路由器的非敏感会话归属状态。
+    pub fn router_state_file(&self) -> PathBuf {
+        self.state_dir.join("router-state.json")
+    }
+
+    /// ACP 路由器的账号隔离目录与共享会话目录。
+    pub fn router_data_dir(&self) -> PathBuf {
+        self.data_dir.join("router")
+    }
+
+    /// ACP 路由器单实例锁。
+    pub fn router_lock_file(&self) -> PathBuf {
+        self.state_dir.join("router.lock")
+    }
+
     /// quota 查询结果缓存：`<cache_dir>/quota_cache.json`。
     pub fn quota_cache_file(&self) -> PathBuf {
         self.cache_dir.join("quota_cache.json")

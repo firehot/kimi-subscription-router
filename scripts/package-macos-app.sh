@@ -16,10 +16,12 @@ esac
 
 case "$PROFILE" in
     release)
-        cargo build --manifest-path "$ROOT/Cargo.toml" --release -p kimi-switch-gui
+        cargo build --manifest-path "$ROOT/Cargo.toml" --release \
+            -p kimi-switch-gui -p kimi-subscription-router
         ;;
     debug)
-        cargo build --manifest-path "$ROOT/Cargo.toml" -p kimi-switch-gui
+        cargo build --manifest-path "$ROOT/Cargo.toml" \
+            -p kimi-switch-gui -p kimi-subscription-router
         ;;
     *)
         echo "error: profile must be 'release' or 'debug'" >&2
@@ -28,6 +30,7 @@ case "$PROFILE" in
 esac
 
 BINARY="$TARGET_DIR/$PROFILE/kimi-switch"
+ROUTER_BINARY="$TARGET_DIR/$PROFILE/kimi-subscription-router"
 APP="$TARGET_DIR/$PROFILE/Kimi Subscription Router.app"
 CONTENTS="$APP/Contents"
 MACOS="$CONTENTS/MacOS"
@@ -35,8 +38,10 @@ MACOS="$CONTENTS/MacOS"
 rm -rf "$APP"
 mkdir -p "$MACOS"
 cp "$BINARY" "$MACOS/kimi-switch"
+cp "$ROUTER_BINARY" "$MACOS/kimi-subscription-router"
 cp "$ROOT/packaging/macos/Info.plist" "$CONTENTS/Info.plist"
 chmod 755 "$MACOS/kimi-switch"
+chmod 755 "$MACOS/kimi-subscription-router"
 
 PACKAGE_ID=$(cargo pkgid --manifest-path "$ROOT/Cargo.toml" -p kimi-switch-gui)
 VERSION=${PACKAGE_ID##*@}
