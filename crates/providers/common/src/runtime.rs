@@ -20,6 +20,13 @@ pub struct BlobMetadata {
     pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
+/// Provider 官方账号接口返回的可展示资料；不得包含 token 或 Cookie。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AccountProfile {
+    pub display_label: Option<String>,
+    pub email: Option<String>,
+}
+
 /// 隔离运行所需的差异点。
 #[derive(Debug, Clone)]
 pub struct IsolationSpec {
@@ -77,6 +84,18 @@ pub trait FileBlobRuntime: Send + Sync + 'static {
         _account: &Account,
     ) -> Result<Option<String>> {
         Ok(None)
+    }
+
+    /// 查询结构化账号资料。默认只复用旧的展示名接口，Provider 可补充邮箱等字段。
+    async fn fetch_account_profile(
+        &self,
+        access_token: &str,
+        account: &Account,
+    ) -> Result<AccountProfile> {
+        Ok(AccountProfile {
+            display_label: self.fetch_account_label(access_token, account).await?,
+            email: None,
+        })
     }
 
     /// 可选：在 store/live 都拿不到时，从 provider 私有 legacy 布局恢复 blob。默认无。

@@ -22,6 +22,10 @@
 //! [quota]
 //! fetch_timeout_ms = 20000
 //! fetch_retries = 1
+//!
+//! [gui]
+//! auto_refresh_interval_ms = 300000
+//! dark_mode = true
 //! ```
 
 use std::path::Path;
@@ -41,6 +45,7 @@ pub struct Settings {
     pub token: Token,
     pub daemon: Daemon,
     pub beta: Beta,
+    pub gui: Gui,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -104,6 +109,15 @@ pub struct Beta {
     pub usage_cache_max_age_ms: i64,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Gui {
+    /// GUI 自动刷新额度的间隔（毫秒）；0 表示关闭。
+    pub auto_refresh_interval_ms: u64,
+    /// 是否使用深色主题。
+    pub dark_mode: bool,
+}
+
 impl Default for AutoSwap {
     fn default() -> Self {
         Self {
@@ -151,6 +165,15 @@ impl Default for Beta {
     fn default() -> Self {
         Self {
             usage_cache_max_age_ms: defaults::BETA_USAGE_CACHE_MAX_AGE_MS,
+        }
+    }
+}
+
+impl Default for Gui {
+    fn default() -> Self {
+        Self {
+            auto_refresh_interval_ms: defaults::GUI_AUTO_REFRESH_INTERVAL_MS,
+            dark_mode: true,
         }
     }
 }
@@ -229,6 +252,52 @@ pub fn set_auto_swap_enabled(enabled: bool) -> Result<()> {
     Ok(())
 }
 
+/// 将 `[gui] auto_refresh_interval_ms` 写入默认配置，其余字段保持不变。
+pub fn set_gui_auto_refresh_interval_ms(interval_ms: u64) -> Result<()> {
+    let path = AppPaths::resolve()?.config_file();
+    set_gui_auto_refresh_interval_at(&path, interval_ms)
+}
+
+fn set_gui_auto_refresh_interval_at(path: &Path, interval_ms: u64) -> Result<()> {
+    let interval_ms = i64::try_from(interval_ms)
+        .map_err(|_| Error::Config("gui auto refresh interval is too large".into()))?;
+    update_config_at(path, |doc| {
+        doc["gui"]["auto_refresh_interval_ms"] = toml_edit::value(interval_ms);
+    })
+}
+
+/// 将 `[gui] dark_mode` 写入默认配置，其余字段保持不变。
+pub fn set_gui_dark_mode(dark_mode: bool) -> Result<()> {
+    let path = AppPaths::resolve()?.config_file();
+    set_gui_dark_mode_at(&path, dark_mode)
+}
+
+fn set_gui_dark_mode_at(path: &Path, dark_mode: bool) -> Result<()> {
+    update_config_at(path, |doc| {
+        doc["gui"]["dark_mode"] = toml_edit::value(dark_mode);
+    })
+}
+
+fn update_config_at(path: &Path, update: impl FnOnce(&mut toml_edit::DocumentMut)) -> Result<()> {
+    let mut doc: toml_edit::DocumentMut = if path.exists() {
+        let raw = std::fs::read_to_string(path)
+            .map_err(|e| Error::Config(format!("read {}: {e}", path.display())))?;
+        raw.parse::<toml_edit::DocumentMut>()
+            .map_err(|e| Error::Config(format!("parse {}: {e}", path.display())))?
+    } else {
+        toml_edit::DocumentMut::new()
+    };
+    update(&mut doc);
+
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| Error::Config(format!("create dir {}: {e}", parent.display())))?;
+    }
+    std::fs::write(path, doc.to_string())
+        .map_err(|e| Error::Config(format!("write {}: {e}", path.display())))?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -251,6 +320,11 @@ mod tests {
             s.quota.fetch_retry_delay_ms,
             defaults::QUOTA_FETCH_RETRY_DELAY_MS
         );
+        assert_eq!(
+            s.gui.auto_refresh_interval_ms,
+            defaults::GUI_AUTO_REFRESH_INTERVAL_MS
+        );
+        assert!(s.gui.dark_mode);
     }
 
     #[test]
@@ -295,5 +369,50 @@ foo = 1
         .unwrap();
         let err = load_from(&path).unwrap_err().to_string();
         assert!(err.contains("foo"), "{err}");
+    }
+
+    #[test]
+    fn gui_refresh_interval_update_preserves_other_settings() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("config.toml");
+        std::fs::write(
+            &path,
+            r#"[auto_swap]
+enabled = false
+"#,
+        )
+        .unwrap();
+
+        set_gui_auto_refresh_interval_at(&path, 900_000).unwrap();
+
+        let raw = std::fs::read_to_string(&path).unwrap();
+        assert!(raw.contains("enabled = false"));
+        assert!(raw.contains("auto_refresh_interval_ms = 900000"));
+        let settings = load_from(&path).unwrap();
+        assert!(!settings.auto_swap.enabled);
+        assert_eq!(settings.gui.auto_refresh_interval_ms, 900_000);
+    }
+
+    #[test]
+    fn gui_theme_update_preserves_refresh_interval_and_other_settings() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("config.toml");
+        std::fs::write(
+            &path,
+            r#"[auto_swap]
+enabled = false
+
+[gui]
+auto_refresh_interval_ms = 900000
+"#,
+        )
+        .unwrap();
+
+        set_gui_dark_mode_at(&path, false).unwrap();
+
+        let settings = load_from(&path).unwrap();
+        assert!(!settings.auto_swap.enabled);
+        assert_eq!(settings.gui.auto_refresh_interval_ms, 900_000);
+        assert!(!settings.gui.dark_mode);
     }
 }

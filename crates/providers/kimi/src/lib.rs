@@ -15,7 +15,7 @@ use async_trait::async_trait;
 use kimi_switch_core::error::Result;
 use kimi_switch_core::{Account, AccountRegistry, CredentialStore, Quota};
 use kimi_switch_engine::{
-    BlobMetadata, FileBlobProvider, FileBlobRuntime, IsolationSpec, RefreshOutcome,
+    AccountProfile, BlobMetadata, FileBlobProvider, FileBlobRuntime, IsolationSpec, RefreshOutcome,
 };
 
 pub const PROVIDER_ID: &str = "kimi";
@@ -52,12 +52,12 @@ impl FileBlobRuntime for KimiRuntime {
     async fn fetch_quota(&self, access_token: &str, account: &Account) -> Result<Vec<Quota>> {
         kimi_usage::fetch_quota_with_active_recovery(access_token, account).await
     }
-    async fn fetch_account_label(
+    async fn fetch_account_profile(
         &self,
         access_token: &str,
         account: &Account,
-    ) -> Result<Option<String>> {
-        kimi_user::fetch_display_label_with_active_recovery(access_token, account).await
+    ) -> Result<AccountProfile> {
+        kimi_user::fetch_account_profile_with_active_recovery(access_token, account).await
     }
 }
 

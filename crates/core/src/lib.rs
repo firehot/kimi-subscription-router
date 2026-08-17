@@ -11,6 +11,7 @@ pub mod quota_cache;
 pub mod quota_query;
 pub mod registry;
 pub mod removed;
+pub mod router_status;
 pub mod settings;
 pub mod store;
 pub mod swap;
@@ -25,4 +26,5 @@ pub use quota_cache::{is_authentication_failure, CachedEntry, QuotaCache, ValidE
 pub use quota_query::query_quota_with_retry;
 pub use registry::ProviderRegistry;
 pub use removed::RemovedAccounts;
+pub use router_status::{load_router_status, RouterStatusSnapshot, SessionAssignment};
 pub use store::{CredentialStore, FileStore, KeyringStore};

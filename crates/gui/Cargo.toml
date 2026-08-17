@@ -1,15 +1,15 @@
 [package]
-name = "kimi-switch-gui"
+name = "kimi-subscription-router-gui"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "kimi-switch GUI: manage multiple Kimi Code accounts"
+description = "Kimi Subscription Router desktop application"
 repository.workspace = true
 homepage.workspace = true
 
 [[bin]]
-name = "kimi-switch"
+name = "kimi-subscription-router-gui"
 path = "src/main.rs"
 
 [dependencies]
@@ -26,9 +26,15 @@ rand.workspace = true
 subtle.workspace = true
 tiny_http.workspace = true
 eframe = "0.31"
+webbrowser = "1"
 
 [target.'cfg(any(target_os = "windows", target_os = "macos"))'.dependencies]
 tray-icon = { version = "0.24", default-features = false }
+auto-launch = "0.6"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["NSApplication", "NSResponder", "NSRunningApplication"] }
 
 [dev-dependencies]
 tempfile = "3"

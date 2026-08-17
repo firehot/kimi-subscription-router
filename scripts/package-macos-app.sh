@@ -17,11 +17,13 @@ esac
 case "$PROFILE" in
     release)
         cargo build --manifest-path "$ROOT/Cargo.toml" --release \
-            -p kimi-switch-gui -p kimi-subscription-router
+            -p kimi-subscription-router-gui -p kimi-switch-cli \
+            -p kimi-subscription-router
         ;;
     debug)
         cargo build --manifest-path "$ROOT/Cargo.toml" \
-            -p kimi-switch-gui -p kimi-subscription-router
+            -p kimi-subscription-router-gui -p kimi-switch-cli \
+            -p kimi-subscription-router
         ;;
     *)
         echo "error: profile must be 'release' or 'debug'" >&2
@@ -29,21 +31,28 @@ case "$PROFILE" in
         ;;
 esac
 
-BINARY="$TARGET_DIR/$PROFILE/kimi-switch"
+BINARY="$TARGET_DIR/$PROFILE/kimi-subscription-router-gui"
+CLI_BINARY="$TARGET_DIR/$PROFILE/kimi-switch-cli"
+BRANDED_CLI="$TARGET_DIR/$PROFILE/Kimi Subscription Router CLI"
 ROUTER_BINARY="$TARGET_DIR/$PROFILE/kimi-subscription-router"
 APP="$TARGET_DIR/$PROFILE/Kimi Subscription Router.app"
 CONTENTS="$APP/Contents"
 MACOS="$CONTENTS/MacOS"
+RESOURCES="$CONTENTS/Resources"
+APP_BINARY="$MACOS/Kimi Subscription Router"
 
 rm -rf "$APP"
-mkdir -p "$MACOS"
-cp "$BINARY" "$MACOS/kimi-switch"
+mkdir -p "$MACOS" "$RESOURCES"
+cp "$CLI_BINARY" "$BRANDED_CLI"
+cp "$BINARY" "$APP_BINARY"
 cp "$ROUTER_BINARY" "$MACOS/kimi-subscription-router"
 cp "$ROOT/packaging/macos/Info.plist" "$CONTENTS/Info.plist"
-chmod 755 "$MACOS/kimi-switch"
+cp "$ROOT/packaging/macos/AppIcon.icns" "$RESOURCES/AppIcon.icns"
+chmod 755 "$APP_BINARY"
 chmod 755 "$MACOS/kimi-subscription-router"
+chmod 755 "$BRANDED_CLI"
 
-PACKAGE_ID=$(cargo pkgid --manifest-path "$ROOT/Cargo.toml" -p kimi-switch-gui)
+PACKAGE_ID=$(cargo pkgid --manifest-path "$ROOT/Cargo.toml" -p kimi-subscription-router-gui)
 VERSION=${PACKAGE_ID##*@}
 /usr/bin/plutil -replace CFBundleShortVersionString -string "$VERSION" "$CONTENTS/Info.plist"
 /usr/bin/plutil -replace CFBundleVersion -string "$VERSION" "$CONTENTS/Info.plist"

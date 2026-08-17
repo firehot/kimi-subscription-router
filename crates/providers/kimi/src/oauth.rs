@@ -5,7 +5,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::mpsc::{self, Sender};
-use std::sync::OnceLock;
+use std::sync::Mutex;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -148,14 +148,60 @@ pub async fn recover_active_401(
 }
 
 async fn installed_kimi_refresh_lock_protocol() -> Option<RefreshLockProtocol> {
-    // `kimi --version` 实测可到数秒；同一进程内协议不会变，缓存避免每次 401 自愈都再付一次代价，
-    // 也降低被外层 quota fetch timeout 中途取消的概率。
-    static CACHED: OnceLock<Option<RefreshLockProtocol>> = OnceLock::new();
-    if let Some(cached) = CACHED.get() {
-        return *cached;
+    // Finder/登录项启动时 PATH 往往不含 ~/.kimi-code/bin；显式探测官方默认安装位置。
+    // 只缓存成功结果，避免冷启动的一次失败让当前进程后续手动刷新也永久失效。
+    static CACHED: Mutex<Option<RefreshLockProtocol>> = Mutex::new(None);
+    let protocol = tokio::task::spawn_blocking(|| {
+        cached_or_probe(&CACHED, || {
+            probe_lock_protocol(&installed_kimi_binary_candidates())
+        })
+    })
+    .await
+    .unwrap_or(None)?;
+    protocol_with_lock_setting(
+        protocol,
+        std::env::var("KIMI_DISABLE_OAUTH_LOCK").as_deref() == Ok("1"),
+    )
+}
+
+fn cached_or_probe(
+    cache: &Mutex<Option<RefreshLockProtocol>>,
+    probe: impl FnOnce() -> Option<RefreshLockProtocol>,
+) -> Option<RefreshLockProtocol> {
+    let mut cached = cache
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if cached.is_none() {
+        *cached = probe();
     }
-    let probed = tokio::task::spawn_blocking(|| {
-        Command::new("kimi")
+    *cached
+}
+
+fn installed_kimi_binary_candidates() -> Vec<PathBuf> {
+    let user_home = directories::UserDirs::new().map(|dirs| dirs.home_dir().to_path_buf());
+    kimi_binary_candidates(&paths::kimi_home(), user_home.as_deref())
+}
+
+fn kimi_binary_candidates(kimi_home: &Path, user_home: Option<&Path>) -> Vec<PathBuf> {
+    let executable = if cfg!(windows) { "kimi.exe" } else { "kimi" };
+    let mut candidates = vec![PathBuf::from(executable)];
+    for candidate in [
+        Some(kimi_home.join("bin").join(executable)),
+        user_home.map(|home| home.join(".kimi-code").join("bin").join(executable)),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if !candidates.contains(&candidate) {
+            candidates.push(candidate);
+        }
+    }
+    candidates
+}
+
+fn probe_lock_protocol(candidates: &[PathBuf]) -> Option<RefreshLockProtocol> {
+    candidates.iter().find_map(|binary| {
+        Command::new(binary)
             .arg("--version")
             .output()
             .ok()
@@ -166,16 +212,7 @@ async fn installed_kimi_refresh_lock_protocol() -> Option<RefreshLockProtocol> {
                 lock_protocol_from_version_output(&stdout)
                     .or_else(|| lock_protocol_from_version_output(&stderr))
             })
-            .and_then(|protocol| {
-                protocol_with_lock_setting(
-                    protocol,
-                    std::env::var("KIMI_DISABLE_OAUTH_LOCK").as_deref() == Ok("1"),
-                )
-            })
     })
-    .await
-    .unwrap_or(None);
-    *CACHED.get_or_init(|| probed)
 }
 
 fn protocol_with_lock_setting(
@@ -659,6 +696,57 @@ mod tests {
         }
         #[cfg(windows)]
         assert_eq!(lock_protocol_for_version((0, 28, 1)), None);
+    }
+
+    #[test]
+    fn failed_protocol_probe_is_not_cached() {
+        let cache = Mutex::new(None);
+        let attempts = std::cell::Cell::new(0);
+
+        assert_eq!(
+            cached_or_probe(&cache, || {
+                attempts.set(attempts.get() + 1);
+                None
+            }),
+            None
+        );
+        assert_eq!(
+            cached_or_probe(&cache, || {
+                attempts.set(attempts.get() + 1);
+                Some(RefreshLockProtocol::PythonFile)
+            }),
+            Some(RefreshLockProtocol::PythonFile)
+        );
+        assert_eq!(
+            cached_or_probe(&cache, || {
+                attempts.set(attempts.get() + 1);
+                None
+            }),
+            Some(RefreshLockProtocol::PythonFile)
+        );
+        assert_eq!(attempts.get(), 2);
+    }
+
+    #[test]
+    fn probes_path_and_official_default_install_location() {
+        let candidates = kimi_binary_candidates(
+            Path::new("/private/custom-kimi-home"),
+            Some(Path::new("/Users/example")),
+        );
+        let executable = if cfg!(windows) { "kimi.exe" } else { "kimi" };
+
+        assert_eq!(candidates[0], PathBuf::from(executable));
+        assert!(candidates.contains(
+            &Path::new("/private/custom-kimi-home")
+                .join("bin")
+                .join(executable)
+        ));
+        assert!(candidates.contains(
+            &Path::new("/Users/example")
+                .join(".kimi-code")
+                .join("bin")
+                .join(executable)
+        ));
     }
 
     #[cfg(not(windows))]

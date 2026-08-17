@@ -9,3 +9,7 @@ removed.json
 quota_cache.json
 audit.log
 .env
+
+# 仅供本地协作使用，不进入公开仓库
+/AGENTS.md
+/HANDOFF.md

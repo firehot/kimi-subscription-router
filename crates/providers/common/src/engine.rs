@@ -23,7 +23,9 @@ use kimi_switch_core::{
 };
 
 use crate::json::{extract_access_token, extract_refresh_token};
-use crate::runtime::{BlobMetadata, FileBlobRuntime, IsolationSpec, RefreshOutcome};
+use crate::runtime::{
+    AccountProfile, BlobMetadata, FileBlobRuntime, IsolationSpec, RefreshOutcome,
+};
 
 /// 文件型 OAuth 账号切换引擎：接一个 [`FileBlobRuntime`] adapter 即可获得完整 [`Provider`] 实现。
 pub struct FileBlobProvider<A: FileBlobRuntime> {
@@ -476,8 +478,13 @@ impl<A: FileBlobRuntime> FileBlobProvider<A> {
 
     /// 查询 Provider 提供的账号展示名；没有可用名称时返回 `None`。
     pub async fn query_account_label(&self, id: &AccountId) -> Result<Option<String>> {
+        Ok(self.query_account_profile(id).await?.display_label)
+    }
+
+    /// 查询 Provider 官方接口提供的结构化账号资料。
+    pub async fn query_account_profile(&self, id: &AccountId) -> Result<AccountProfile> {
         let (account, access) = self.account_with_fresh_access(id).await?;
-        self.runtime.fetch_account_label(&access, &account).await
+        self.runtime.fetch_account_profile(&access, &account).await
     }
 }
 

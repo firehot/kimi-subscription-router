@@ -7,4 +7,4 @@ pub mod runtime;
 
 pub use engine::FileBlobProvider;
 pub use json::{extract_access_token, extract_refresh_token, extract_token};
-pub use runtime::{BlobMetadata, FileBlobRuntime, IsolationSpec, RefreshOutcome};
+pub use runtime::{AccountProfile, BlobMetadata, FileBlobRuntime, IsolationSpec, RefreshOutcome};
