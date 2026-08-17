@@ -8,6 +8,8 @@ use kimi_switch_core::{Account, Quota, QuotaCache, QuotaStatus, QuotaWindow};
 
 use crate::state::RouterState;
 
+const ROUTING_QUOTA_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+
 #[derive(Debug, Clone)]
 pub struct Selection {
     pub account_id: String,
@@ -81,10 +83,16 @@ impl RouteSelector {
             return false;
         }
         let cache = QuotaCache::load(&self.quota_path);
-        match cache.get("kimi", account_id) {
+        match cache.fresh("kimi", account_id, ROUTING_QUOTA_MAX_AGE) {
             Some(entry) => !quota_exhausted(&entry.quotas),
             None => true,
         }
+    }
+
+    pub fn account_routing_enabled(&self, account_id: &str) -> bool {
+        self.accounts
+            .iter()
+            .any(|account| account.id.0 == account_id && routing_enabled(account))
     }
 
     fn clear_elapsed_exhaustion(&mut self) {
@@ -106,7 +114,9 @@ fn select_from(
         if !routing_enabled(account) || excluded.contains(&account.id.0) {
             continue;
         }
-        let quotas = cache.get("kimi", &account.id.0).map(|entry| entry.quotas);
+        let quotas = cache
+            .fresh("kimi", &account.id.0, ROUTING_QUOTA_MAX_AGE)
+            .map(|entry| entry.quotas);
         let runtime_reset = runtime_exhausted.get(&account.id.0).copied();
         let exhausted = runtime_reset.is_some()
             || quotas
@@ -303,5 +313,19 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result.account_id, "idle");
+    }
+
+    #[test]
+    fn routing_toggle_is_not_an_exhaustion_signal() {
+        let mut disabled = account("toggle", 100);
+        disabled
+            .extra
+            .insert("routing_enabled".into(), false.into());
+        let temp = tempfile::tempdir().unwrap();
+        let mut selector = RouteSelector::new(vec![disabled], temp.path().join("quota.json"));
+
+        assert!(!selector.account_routing_enabled("toggle"));
+        selector.replace_accounts(vec![account("toggle", 100)]);
+        assert!(selector.account_routing_enabled("toggle"));
     }
 }

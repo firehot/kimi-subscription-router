@@ -4,7 +4,19 @@
 
 use crate::error::{Error, Result};
 use directories::ProjectDirs;
+use sha2::{Digest, Sha256};
 use std::path::PathBuf;
+
+/// 账号 ID 到路由器私有目录名的稳定映射，避免在路径中暴露原始 ID。
+pub fn router_account_dir_name(account_id: &str) -> String {
+    let digest = Sha256::digest(account_id.as_bytes());
+    let mut out = String::with_capacity(32);
+    for byte in &digest[..16] {
+        use std::fmt::Write as _;
+        let _ = write!(out, "{byte:02x}");
+    }
+    out
+}
 
 /// 从旧版本数据目录一次性迁移（老用户的账号库不丢）。
 fn migrate_legacy_dirs(new_dirs: &ProjectDirs) {
@@ -138,6 +150,14 @@ impl AppPaths {
     /// ACP 路由器的账号隔离目录与共享会话目录。
     pub fn router_data_dir(&self) -> PathBuf {
         self.data_dir.join("router")
+    }
+
+    /// 指定账号的路由器隔离 Kimi home。
+    pub fn router_account_home(&self, account_id: &str) -> PathBuf {
+        self.router_data_dir()
+            .join("accounts")
+            .join(router_account_dir_name(account_id))
+            .join("kimi-home")
     }
 
     /// ACP 路由器单实例锁。

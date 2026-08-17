@@ -550,13 +550,24 @@ impl Backend {
         {
             removed.add("kimi", id.0.as_str())?;
         }
-        if let Err(e) = self.store.delete("kimi", id.0.as_str(), "blob") {
-            tracing::warn!(err=%e, "credential store delete failed (continuing)");
+        let credential_delete_error = self.store.delete("kimi", id.0.as_str(), "blob").err();
+        let paths = AppPaths::resolve().context("解析路由器数据目录失败")?;
+        let isolated_credential = paths
+            .router_account_home(&id.0)
+            .join("credentials")
+            .join("kimi-code.json");
+        if let Err(error) = std::fs::remove_file(&isolated_credential) {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                return Err(error).with_context(|| {
+                    format!("删除隔离凭证失败: {}", isolated_credential.display())
+                });
+            }
         }
-        if let Ok(paths) = AppPaths::resolve() {
-            let mut cache = QuotaCache::load(&paths.quota_cache_file());
-            cache.remove("kimi", &id.0);
-            cache.save(&paths.quota_cache_file());
+        let mut cache = QuotaCache::load(&paths.quota_cache_file());
+        cache.remove("kimi", &id.0);
+        cache.save(&paths.quota_cache_file());
+        if let Some(error) = credential_delete_error {
+            anyhow::bail!("账号记录已移除，但删除凭证失败: {error}");
         }
         self.audit
             .append(AuditEvent::ok("rm", "kimi", Some(id.0.as_str())));

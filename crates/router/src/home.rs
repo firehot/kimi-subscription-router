@@ -5,9 +5,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
+use kimi_switch_core::paths::router_account_dir_name;
 use kimi_switch_core::{Account, AccountId};
 use kimi_switch_kimi::KimiProvider;
-use sha2::{Digest, Sha256};
 
 pub struct AccountHome {
     pub account_id: String,
@@ -27,7 +27,7 @@ impl AccountHome {
 
         let path = router_root
             .join("accounts")
-            .join(account_dir_name(&account.id.0))
+            .join(router_account_dir_name(&account.id.0))
             .join("kimi-home");
         fs::create_dir_all(path.join("credentials"))?;
         restrict_dir(&path)?;
@@ -63,6 +63,17 @@ impl AccountHome {
         provider
             .absorb_blob(&AccountId(self.account_id.clone()), &raw)
             .context("persist credentials rotated by Kimi Code")
+    }
+
+    /// 账号被删除后清除路由器隔离目录中的凭证副本。
+    pub fn purge_credentials(&self) -> Result<()> {
+        match fs::remove_file(&self.credential_file) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => {
+                Err(error).with_context(|| format!("remove {}", self.credential_file.display()))
+            }
+        }
     }
 }
 
@@ -160,16 +171,6 @@ fn official_kimi_url(url: &str) -> bool {
         .any(|origin| url == *origin || url.starts_with(&format!("{origin}/")))
 }
 
-fn account_dir_name(account_id: &str) -> String {
-    let digest = Sha256::digest(account_id.as_bytes());
-    let mut out = String::with_capacity(32);
-    for byte in &digest[..16] {
-        use std::fmt::Write;
-        let _ = write!(out, "{byte:02x}");
-    }
-    out
-}
-
 fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
@@ -244,10 +245,10 @@ mod tests {
 
     #[test]
     fn account_directory_does_not_expose_account_id() {
-        let name = account_dir_name("user@example.com");
+        let name = router_account_dir_name("user@example.com");
         assert_eq!(name.len(), 32);
         assert!(!name.contains("user"));
-        assert_eq!(name, account_dir_name("user@example.com"));
+        assert_eq!(name, router_account_dir_name("user@example.com"));
     }
 
     #[cfg(unix)]
@@ -305,5 +306,22 @@ model = "evil"
         assert!(output.contains("api.kimi.com"));
         assert!(!output.contains("example.com"));
         assert!(!output.contains("secret"));
+    }
+
+    #[test]
+    fn purge_credentials_removes_isolated_copy() {
+        let temp = tempfile::tempdir().unwrap();
+        let credential_file = temp.path().join("credentials").join("kimi-code.json");
+        fs::create_dir_all(credential_file.parent().unwrap()).unwrap();
+        fs::write(&credential_file, br#"{"access_token":"private"}"#).unwrap();
+        let home = AccountHome {
+            account_id: "account-a".into(),
+            path: temp.path().to_path_buf(),
+            credential_file: credential_file.clone(),
+        };
+
+        home.purge_credentials().unwrap();
+        home.purge_credentials().unwrap();
+        assert!(!credential_file.exists());
     }
 }

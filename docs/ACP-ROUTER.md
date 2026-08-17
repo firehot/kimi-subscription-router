@@ -17,7 +17,8 @@ kimi-subscription-router
 
 新会话优先使用在 7 天窗口重置前更需要消耗余量、同时仍有 5 小时窗口容量的账号。
 分数接近时，依次使用当前粘性会话数、账号 priority 和稳定账号顺序作为 tie-breaker。
-没有新鲜额度缓存的账号仍可使用，但排在已确认有容量的账号之后。
+额度缓存写入超过 10 分钟后会降级为未知；该账号仍可使用，但排在已确认有容量的
+账号之后。
 
 后续请求始终发给会话 owner。路由器在以下情况发起故障转移：
 
@@ -28,6 +29,13 @@ kimi-subscription-router
 故障转移先对旧 owner 调用 `session/close`，再在新 owner 上调用
 `session/resume`，成功后才重试原 prompt。若没有可用账号，返回错误码 `-32042`，
 `error.data.nextReset` 包含已知的最近重置时间。
+
+账号注册表每 2 秒同步一次。新增账号的 ACP 子进程完成 `initialize` 后才进入候选池；
+删除账号时先停止并等待对应子进程退出，再清除隔离凭证副本。子进程重新启动时使用
+代际编号过滤旧进程迟到的响应，避免误伤新进程。
+
+初始化与内部 `session/close` / `session/resume` 动作最长等待 15 秒。等待中的子进程
+退出或超时会结束原请求并返回路由器错误。
 
 ## 本地数据
 
@@ -46,5 +54,11 @@ Kimi Code 子进程及其官方锁协议执行，路由器只吸收原子轮换�
   `session/close`、`session/resume` 和 `session/delete`。
 - 路由器只把明确的 prompt-level quota JSON-RPC error 识别为响应式故障转移信号；
   普通工具错误不会触发换号。
+- 会话 owner 会持久化，但包含工作目录和 MCP 参数的 resume context 只保存在当前进程
+  内存中，避免把潜在敏感配置复制到状态文件。重启后客户端需先执行 `session/load` 或
+  `session/resume`，该会话才能自动故障转移。
+- 尚未发送真实模型 prompt 验收额度耗尽响应；当前覆盖缓存预判、明确 quota error 分类
+  和官方 ACP 会话生命周期。
 - Windows 创建共享会话目录链接可能需要启用 Developer Mode 或提供符号链接权限。
 - 不复制用户自定义 provider、第三方 endpoint、用户级 MCP 配置或内联 API key。
+- 不自动写入 Zed、JetBrains 或其他 ACP 客户端配置；接入方式见 README。
