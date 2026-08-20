@@ -92,9 +92,19 @@ fn lock_is_held(path: &Path) -> Result<bool> {
             FileExt::unlock(&file)?;
             Ok(false)
         }
-        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => Ok(true),
+        Err(error) if lock_conflict(&error) => Ok(true),
         Err(error) => Err(error.into()),
     }
+}
+
+fn lock_conflict(error: &std::io::Error) -> bool {
+    if error.kind() == std::io::ErrorKind::WouldBlock {
+        return true;
+    }
+    #[cfg(windows)]
+    return matches!(error.raw_os_error(), Some(32 | 33));
+    #[cfg(not(windows))]
+    false
 }
 
 fn open_lock(path: &Path) -> Result<File> {

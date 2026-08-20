@@ -484,7 +484,9 @@ mod tests {
 
     use kimi_switch_core::paths::AppPaths;
 
-    use super::{load_or_create_token, start, valid_account_id, Action, Reply, RouterEventStream};
+    #[cfg(unix)]
+    use super::load_or_create_token;
+    use super::{start, valid_account_id, Action, Reply, RouterEventStream};
 
     #[test]
     fn account_id_accepts_safe_path_segment() {
