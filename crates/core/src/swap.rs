@@ -170,15 +170,8 @@ where
     Ok(())
 }
 
-#[cfg(unix)]
 fn restrict_snapshot_permissions(path: &Path) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
-    Ok(())
-}
-
-#[cfg(not(unix))]
-fn restrict_snapshot_permissions(_path: &Path) -> Result<()> {
+    crate::private_fs::restrict_file(path)?;
     Ok(())
 }
 
@@ -206,14 +199,7 @@ fn rollback(backups: &[(PathBuf, Option<String>)]) {
     }
 }
 
-#[cfg(unix)]
 fn restrict_rollback_permissions(path: &Path) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
-    Ok(())
-}
-
-#[cfg(not(unix))]
-fn restrict_rollback_permissions(_path: &Path) -> Result<()> {
+    crate::private_fs::restrict_file(path)?;
     Ok(())
 }

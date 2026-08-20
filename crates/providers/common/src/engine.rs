@@ -87,11 +87,7 @@ impl<A: FileBlobRuntime> FileBlobProvider<A> {
         }
         let tmp = path.with_extension(format!("tmp.{}", std::process::id()));
         fs::write(&tmp, contents)?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600))?;
-        }
+        kimi_switch_core::private_fs::restrict_file(&tmp)?;
         fs::rename(&tmp, path)?;
         Ok(())
     }

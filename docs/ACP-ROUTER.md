@@ -59,6 +59,7 @@ Kimi Code 子进程及其官方锁协议执行，路由器只吸收原子轮换�
   `session/resume`，该会话才能自动故障转移。
 - 尚未发送真实模型 prompt 验收额度耗尽响应；当前覆盖缓存预判、明确 quota error 分类
   和官方 ACP 会话生命周期。
-- Windows 创建共享会话目录链接可能需要启用 Developer Mode 或提供符号链接权限。
+- Windows 优先创建目录符号链接；普通用户没有符号链接权限时自动回退为目录联接，
+  无需启用 Developer Mode。
 - 不复制用户自定义 provider、第三方 endpoint、用户级 MCP 配置或内联 API key。
 - 不自动写入 Zed、JetBrains 或其他 ACP 客户端配置；接入方式见 README。

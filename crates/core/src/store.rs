@@ -151,16 +151,9 @@ impl FileStore {
     }
 }
 
-#[cfg(unix)]
 fn restrict_permissions(path: &Path) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+    crate::private_fs::restrict_file(path)
         .map_err(|e| Error::Credential(format!("chmod credentials failed: {e}")))
-}
-
-#[cfg(not(unix))]
-fn restrict_permissions(_path: &Path) -> Result<()> {
-    Ok(())
 }
 
 impl CredentialStore for FileStore {

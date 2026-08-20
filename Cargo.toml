@@ -61,6 +61,14 @@ kimi-switch-core = { path = "crates/core" }
 kimi-switch-engine = { path = "crates/providers/common" }
 kimi-switch-kimi = { path = "crates/providers/kimi" }
 
+[workspace.dependencies.windows-sys]
+version = "0.61"
+features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+]
+
 [profile.release]
 opt-level = 3
 lto = "thin"

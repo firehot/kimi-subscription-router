@@ -212,30 +212,37 @@ fn create_dir_link(target: &Path, link: &Path) -> std::io::Result<()> {
 
 #[cfg(windows)]
 fn create_dir_link(target: &Path, link: &Path) -> std::io::Result<()> {
-    std::os::windows::fs::symlink_dir(target, link)
+    match std::os::windows::fs::symlink_dir(target, link) {
+        Ok(()) => Ok(()),
+        Err(symlink_error) => {
+            // 目录联接不要求 Developer Mode 或 SeCreateSymbolicLinkPrivilege。
+            let output = std::process::Command::new("cmd.exe")
+                .args(["/d", "/c", "mklink", "/j"])
+                .arg(link)
+                .arg(target)
+                .output()?;
+            if output.status.success() && link.exists() {
+                Ok(())
+            } else {
+                Err(std::io::Error::new(
+                    symlink_error.kind(),
+                    format!(
+                        "symbolic link failed ({symlink_error}); junction failed: {}",
+                        String::from_utf8_lossy(&output.stderr).trim()
+                    ),
+                ))
+            }
+        }
+    }
 }
 
-#[cfg(unix)]
 fn restrict_dir(path: &Path) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
+    kimi_switch_core::private_fs::restrict_dir(path)?;
     Ok(())
 }
 
-#[cfg(not(unix))]
-fn restrict_dir(_path: &Path) -> Result<()> {
-    Ok(())
-}
-
-#[cfg(unix)]
 fn restrict_file(path: &Path) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
-    Ok(())
-}
-
-#[cfg(not(unix))]
-fn restrict_file(_path: &Path) -> Result<()> {
+    kimi_switch_core::private_fs::restrict_file(path)?;
     Ok(())
 }
 

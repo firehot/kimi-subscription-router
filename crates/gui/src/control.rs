@@ -469,16 +469,9 @@ fn write_endpoint(path: &Path, base_url: &str) -> anyhow::Result<()> {
     fs::write(path, body).with_context(|| format!("写入控制服务地址失败: {}", path.display()))
 }
 
-#[cfg(unix)]
 fn restrict_permissions(path: &Path) -> anyhow::Result<()> {
-    use std::os::unix::fs::PermissionsExt as _;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+    kimi_switch_core::private_fs::restrict_file(path)
         .with_context(|| format!("设置私有权限失败: {}", path.display()))
-}
-
-#[cfg(not(unix))]
-fn restrict_permissions(_path: &Path) -> anyhow::Result<()> {
-    Ok(())
 }
 
 #[cfg(test)]

@@ -6,6 +6,7 @@ pub mod defaults;
 pub mod error;
 pub mod model;
 pub mod paths;
+pub mod private_fs;
 pub mod provider;
 pub mod quota_cache;
 pub mod quota_query;
