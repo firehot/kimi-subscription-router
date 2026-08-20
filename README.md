@@ -37,6 +37,15 @@ Kimi Subscription Router 是一款面向 [Kimi Code](https://www.kimi.com/) 用�
 
 ## 安装
 
+### GitHub Releases
+
+正式版本在 GitHub Releases 提供：
+
+- Windows x86-64 便携 ZIP。
+- Windows x86-64 用户级安装程序。
+- macOS Apple Silicon 与 Intel 的应用 ZIP 和 DMG。
+- 各平台 SHA-256 校验清单。
+
 ### macOS 从源码安装
 
 需要 Rust 1.80 或更高版本：

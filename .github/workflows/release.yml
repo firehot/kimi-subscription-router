@@ -1,0 +1,156 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate tag version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tag must use vMAJOR.MINOR.PATCH: $tag" >&2
+            exit 1
+          fi
+          version="${tag#v}"
+          cargo_version="$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\([^"]*\)"/\1/p' Cargo.toml)"
+          if [[ "$version" != "$cargo_version" ]]; then
+            echo "Tag $tag does not match Cargo version $cargo_version" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --draft \
+              --title "Kimi Subscription Router $GITHUB_REF_NAME"
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --verify-tag \
+              --draft \
+              --generate-notes \
+              --title "Kimi Subscription Router $GITHUB_REF_NAME"
+          fi
+
+  windows:
+    needs: prepare
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable-x86_64-pc-windows-msvc
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --yes --no-progress
+
+      - name: Build Windows release packages
+        shell: pwsh
+        run: .\scripts\package-windows-release.ps1 release "${{ needs.prepare.outputs.version }}"
+
+      - name: Verify Windows packages
+        shell: pwsh
+        run: |
+          $dist = 'target/dist/windows-x86_64'
+          Get-ChildItem -LiteralPath $dist
+          $checksums = Get-Content -LiteralPath "$dist/SHA256SUMS-Windows-x86_64.txt"
+          foreach ($line in $checksums) {
+            $hash, $name = $line -split '  ', 2
+            $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath "$dist/$name").Hash.ToLower()
+            if ($actual -ne $hash) {
+              throw "SHA256 mismatch: $name"
+            }
+          }
+
+      - name: Upload Windows assets to draft release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$env:GITHUB_REF_NAME" `
+            "target/dist/windows-x86_64/Kimi-Subscription-Router-${{ needs.prepare.outputs.version }}-Windows-x86_64-Portable.zip" `
+            "target/dist/windows-x86_64/Kimi-Subscription-Router-${{ needs.prepare.outputs.version }}-Windows-x86_64-Setup.exe" `
+            "target/dist/windows-x86_64/SHA256SUMS-Windows-x86_64.txt" `
+            --repo "$env:GITHUB_REPOSITORY" --clobber
+
+  macos:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build macOS release packages
+        shell: bash
+        run: ./scripts/package-macos-release.sh "${{ matrix.arch }}" "${{ needs.prepare.outputs.version }}"
+
+      - name: Verify macOS architecture
+        shell: bash
+        run: |
+          set -euo pipefail
+          app="target/release/Kimi Subscription Router.app/Contents/MacOS/Kimi Subscription Router"
+          actual="$(lipo -archs "$app")"
+          [[ "$actual" == "${{ matrix.arch }}" ]]
+
+      - name: Upload macOS assets to draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$GITHUB_REF_NAME" \
+            "target/dist/macos-${{ matrix.arch }}/Kimi-Subscription-Router-${{ needs.prepare.outputs.version }}-macOS-${{ matrix.arch }}.zip" \
+            "target/dist/macos-${{ matrix.arch }}/Kimi-Subscription-Router-${{ needs.prepare.outputs.version }}-macOS-${{ matrix.arch }}.dmg" \
+            "target/dist/macos-${{ matrix.arch }}/SHA256SUMS-macOS-${{ matrix.arch }}.txt" \
+            --repo "$GITHUB_REPOSITORY" --clobber
+
+  publish:
+    needs: [prepare, windows, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release edit "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --draft=false \
+            --latest

@@ -67,27 +67,3 @@ jobs:
             }
             Write-Host "$path ($($item.Length) bytes)"
           }
-
-      - name: Assemble downloadable package
-        shell: pwsh
-        run: |
-          $package = 'target/windows-package'
-          New-Item -ItemType Directory -Force -Path $package | Out-Null
-          Copy-Item -LiteralPath 'target/release/Kimi Subscription Router.exe' -Destination $package
-          Copy-Item -LiteralPath 'target/release/Kimi Subscription Router CLI.exe' -Destination $package
-          Copy-Item -LiteralPath 'target/release/kimi-subscription-router.exe' -Destination $package
-          Get-ChildItem -LiteralPath $package -Filter '*.exe' |
-            Get-FileHash -Algorithm SHA256 |
-            ForEach-Object { "$($_.Hash.ToLower())  $([System.IO.Path]::GetFileName($_.Path))" } |
-            Set-Content -Encoding ascii -LiteralPath "$package/SHA256SUMS.txt"
-          Compress-Archive -Path "$package/*" -DestinationPath 'target/kimi-subscription-router-windows-x86_64.zip' -Force
-
-      - name: Upload Windows package
-        uses: actions/upload-artifact@v4
-        with:
-          name: kimi-subscription-router-windows-x86_64
-          path: |
-            target/kimi-subscription-router-windows-x86_64.zip
-            target/windows-package/*
-          if-no-files-found: error
-          retention-days: 14
