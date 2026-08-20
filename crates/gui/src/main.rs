@@ -99,13 +99,13 @@ mod desktop_startup {
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 mod desktop_tray {
     use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::mpsc::{channel, Receiver};
     use std::sync::Arc;
 
-    use eframe::egui;
-    use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
+    use tray_icon::menu::{
+        CheckMenuItem, Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem, Submenu,
+    };
     use tray_icon::{
-        Icon, MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent,
+        Icon, MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent, TrayIconId,
     };
 
     pub enum TrayAction {
@@ -118,7 +118,10 @@ mod desktop_tray {
     /// 桌面状态栏图标及其事件通道；字段必须存活到程序退出。
     pub struct DesktopTray {
         _icon: TrayIcon,
-        actions: Receiver<TrayAction>,
+        icon_id: TrayIconId,
+        show_id: MenuId,
+        launch_id: MenuId,
+        exit_id: MenuId,
         launch_at_login: CheckMenuItem,
         launch_state: Arc<AtomicBool>,
         refresh_intervals: Vec<(u64, CheckMenuItem)>,
@@ -126,8 +129,7 @@ mod desktop_tray {
 
     impl DesktopTray {
         pub fn new(
-            ctx: egui::Context,
-            icon_data: &egui::IconData,
+            icon_data: &eframe::egui::IconData,
             launch_enabled: bool,
             refresh_interval_ms: u64,
         ) -> anyhow::Result<Self> {
@@ -166,42 +168,50 @@ mod desktop_tray {
             #[cfg(target_os = "windows")]
             let tray_builder = tray_builder.with_menu_on_left_click(false);
             let tray_icon = tray_builder.build()?;
-
-            let (action_tx, actions) = channel();
             let show_id = show_item.id().clone();
             let launch_id = launch_at_login.id().clone();
             let exit_id = exit_item.id().clone();
-            let refresh_ids = refresh_intervals
-                .iter()
-                .map(|(interval, item)| (item.id().clone(), *interval))
-                .collect::<Vec<_>>();
             let launch_state = Arc::new(AtomicBool::new(launch_enabled));
-            let menu_launch_state = launch_state.clone();
-            let menu_action_tx = action_tx.clone();
-            let menu_ctx = ctx.clone();
-            MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
-                let action = if event.id == show_id {
-                    Some(TrayAction::Show)
-                } else if event.id == launch_id {
-                    Some(TrayAction::SetLaunchAtLogin(
-                        !menu_launch_state.load(Ordering::Relaxed),
-                    ))
-                } else if event.id == exit_id {
-                    Some(TrayAction::Exit)
-                } else {
-                    refresh_ids
-                        .iter()
-                        .find(|(id, _)| event.id == *id)
-                        .map(|(_, interval)| TrayAction::SetRefreshInterval(*interval))
-                };
-                if let Some(action) = action {
-                    let _ = menu_action_tx.send(action);
-                    menu_ctx.request_repaint();
-                }
-            }));
 
-            TrayIconEvent::set_event_handler(Some(move |event: TrayIconEvent| {
-                let should_show = matches!(
+            Ok(Self {
+                icon_id: tray_icon.id().clone(),
+                _icon: tray_icon,
+                show_id,
+                launch_id,
+                exit_id,
+                launch_at_login,
+                launch_state,
+                refresh_intervals,
+            })
+        }
+
+        pub fn try_recv(&self) -> Option<TrayAction> {
+            while let Ok(event) = MenuEvent::receiver().try_recv() {
+                if event.id == self.show_id {
+                    return Some(TrayAction::Show);
+                }
+                if event.id == self.launch_id {
+                    return Some(TrayAction::SetLaunchAtLogin(
+                        !self.launch_state.load(Ordering::Relaxed),
+                    ));
+                }
+                if event.id == self.exit_id {
+                    return Some(TrayAction::Exit);
+                }
+                if let Some((interval, _)) = self
+                    .refresh_intervals
+                    .iter()
+                    .find(|(_, item)| event.id == *item.id())
+                {
+                    return Some(TrayAction::SetRefreshInterval(*interval));
+                }
+            }
+
+            while let Ok(event) = TrayIconEvent::receiver().try_recv() {
+                if event.id() != &self.icon_id {
+                    continue;
+                }
+                if matches!(
                     event,
                     TrayIconEvent::Click {
                         button: MouseButton::Left,
@@ -211,24 +221,11 @@ mod desktop_tray {
                         button: MouseButton::Left,
                         ..
                     }
-                );
-                if should_show {
-                    let _ = action_tx.send(TrayAction::Show);
-                    ctx.request_repaint();
+                ) {
+                    return Some(TrayAction::Show);
                 }
-            }));
-
-            Ok(Self {
-                _icon: tray_icon,
-                actions,
-                launch_at_login,
-                launch_state,
-                refresh_intervals,
-            })
-        }
-
-        pub fn try_recv(&self) -> Option<TrayAction> {
-            self.actions.try_recv().ok()
+            }
+            None
         }
 
         pub fn set_launch_at_login(&self, enabled: bool) {
@@ -1440,7 +1437,6 @@ impl GuiApp {
             .auto_refresh_interval_ms;
         #[cfg(any(target_os = "windows", target_os = "macos"))]
         let tray = desktop_tray::DesktopTray::new(
-            ctx.clone(),
             icon,
             desktop_startup::is_enabled().unwrap_or(false),
             auto_refresh_interval_ms,
@@ -1536,9 +1532,11 @@ impl eframe::App for GuiApp {
         }
         #[cfg(any(target_os = "windows", target_os = "macos"))]
         {
+            let mut restored_from_tray = false;
             while let Some(action) = self.tray.as_ref().and_then(|tray| tray.try_recv()) {
                 match action {
                     desktop_tray::TrayAction::Show => {
+                        restored_from_tray = true;
                         #[cfg(target_os = "macos")]
                         macos_app::set_dock_visible(true);
                         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
@@ -1599,7 +1597,7 @@ impl eframe::App for GuiApp {
                 return;
             }
 
-            if self.tray.is_some() {
+            if self.tray.is_some() && !restored_from_tray {
                 let (close_requested, minimized) = ctx.input(|input| {
                     let viewport = input.viewport();
                     (viewport.close_requested(), viewport.minimized == Some(true))
@@ -2342,6 +2340,11 @@ impl eframe::App for GuiApp {
         } else if self.auto_refresh_interval_ms > 0 {
             let interval = Duration::from_millis(self.auto_refresh_interval_ms);
             ctx.request_repaint_after(interval.saturating_sub(self.last_auto_refresh.elapsed()));
+        }
+        #[cfg(any(target_os = "windows", target_os = "macos"))]
+        if self.tray.is_some() {
+            // 隐藏窗口不会产生窗口事件，固定轮询托盘接收器以处理点击和菜单命令。
+            ctx.request_repaint_after(Duration::from_millis(200));
         }
     }
 }
