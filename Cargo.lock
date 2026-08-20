@@ -2104,6 +2104,7 @@ dependencies = [
  "objc2 0.6.4",
  "objc2-app-kit 0.3.2",
  "rand 0.8.7",
+ "raw-window-handle",
  "serde",
  "serde_json",
  "subtle",
@@ -2113,6 +2114,7 @@ dependencies = [
  "tracing",
  "tray-icon",
  "webbrowser",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
